@@ -1,0 +1,17 @@
+[2025-10-06 10:59:06] === AQRE: Veri Doğrulama Pipeline Başladı ===
+[2025-10-06 10:59:06] fixtures.csv: 5 satır | Ortalama eksik oranı: %0.0 -> ✅ OK
+[2025-10-06 10:59:06] odds.csv: 5 satır | Ortalama eksik oranı: %0.0 -> ✅ OK
+[2025-10-06 10:59:06] referees.csv: 5 satır | Ortalama eksik oranı: %0.0 -> ✅ OK
+[2025-10-06 10:59:06] squads.csv: 6 satır | Ortalama eksik oranı: %13.334 -> ⚠️ WARNING
+[2025-10-06 10:59:06] ❌ Hata (weather.csv): Error tokenizing data. C error: Expected 5 fields in line 5, saw 6
+
+[2025-10-06 10:59:06] xg_stats.csv: 5 satır | Ortalama eksik oranı: %34.285714285714285 -> ⚠️ WARNING
+[2025-10-06 10:59:06] === AQRE: Veri Doğrulama Tamamlandı ===
+[2025-10-06 11:01:19] === AQRE: Veri Doğrulama Pipeline Başladı ===
+[2025-10-06 11:01:19] fixtures.csv: 5 satır | Ortalama eksik oranı: %0.0 -> ✅ OK
+[2025-10-06 11:01:19] odds.csv: 5 satır | Ortalama eksik oranı: %0.0 -> ✅ OK
+[2025-10-06 11:01:19] referees.csv: 5 satır | Ortalama eksik oranı: %0.0 -> ✅ OK
+[2025-10-06 11:01:19] squads.csv: 6 satır | Ortalama eksik oranı: %13.334 -> ⚠️ WARNING
+[2025-10-06 11:01:19] weather.csv: 5 satır | Ortalama eksik oranı: %32.0 -> ⚠️ WARNING
+[2025-10-06 11:01:19] xg_stats.csv: 5 satır | Ortalama eksik oranı: %34.285714285714285 -> ⚠️ WARNING
+[2025-10-06 11:01:19] === AQRE: Veri Doğrulama Tamamlandı ===

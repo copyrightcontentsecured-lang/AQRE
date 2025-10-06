@@ -1,0 +1,232 @@
+﻿# -*- coding: utf-8 -*-
+"""
+Tam senkron MOCK veri üretici (OVERWRITE):
+  - fixtures.csv
+  - odds.csv
+  - weather.csv
+  - xg.csv
+  - referees.csv
+  - squads.csv
+
+Tüm tablolar aynı match_id evreninde (1..N_TOTAL) üretilir ve eski dosyaların üstüne yazılır.
+Önemli: Dosyaya yazma pandas .to_csv(path) ile yapılır; kalıntı dosya riski yok.
+"""
+
+from pathlib import Path
+import numpy as np
+import pandas as pd
+
+# ======= AYARLAR =======
+RAW = RAW_DATA_DIR
+N_TOTAL = 258                 # Toplam maç sayısı
+SEED    = 42                  # Deterministik üretim
+MARGIN  = 1.06                # Bookmaker margin
+DATE_START = pd.Timestamp("2024-08-01")
+DATE_END   = pd.Timestamp("2025-05-31")
+# =======================
+
+rng = np.random.default_rng(SEED)
+
+def ensure_dirs():
+    RAW.mkdir(parents=True, exist_ok=True)
+
+def make_calendar(n: int) -> pd.Series:
+    days = max((DATE_END - DATE_START).days, 1)
+    offs = rng.integers(0, days, size=n)
+    hours = rng.choice([13, 15, 17, 19, 21], size=n, p=[0.1, 0.15, 0.30, 0.30, 0.15])
+    dates = DATE_START + pd.to_timedelta(offs, unit="D")
+    dt = (dates + pd.to_timedelta(hours, unit="h")).strftime("%Y-%m-%d %H:%M:%S")
+    return dt
+
+def softmax_rows(a: np.ndarray) -> np.ndarray:
+    a = a - a.max(axis=1, keepdims=True)
+    e = np.exp(a)
+    return e / e.sum(axis=1, keepdims=True)
+
+def generate_probabilities(n: int) -> np.ndarray:
+    """
+    H / D / A için olasılık üret (ev sahibine küçük avantaj + gürültü).
+    Dönen prob[:,0]=H, prob[:,1]=D, prob[:,2]=A
+    """
+    base = np.c_[rng.normal(0.35, 0.10, n),   # H
+                 rng.normal(0.20, 0.07, n),   # D
+                 rng.normal(0.30, 0.10, n)]   # A
+    bias  = rng.normal(0.10, 0.03, (n, 1))    # Home boost
+    noise = rng.normal(0, 0.05, (n, 3))
+    logits = base + noise
+    logits[:, 0] += bias[:, 0]
+    logits[:, 1] += rng.normal(0, 0.02, n)    # Draw küçük sapma
+    prob = softmax_rows(logits)
+    prob = np.clip(prob, 1e-4, 1.0)
+    prob = prob / prob.sum(axis=1, keepdims=True)
+    return prob
+
+def probabilities_to_outcomes(prob: np.ndarray) -> np.ndarray:
+    labels = np.array(["H", "D", "A"])
+    return np.array([rng.choice(labels, p=p) for p in prob])
+
+def probabilities_to_odds(prob: np.ndarray) -> np.ndarray:
+    odds = MARGIN / prob
+    return np.clip(odds, 1.15, 15.0)
+
+def generate_fixtures(match_ids: np.ndarray, outcomes: np.ndarray) -> pd.DataFrame:
+    n = len(match_ids)
+    home_team_id = rng.integers(100, 200, size=n)
+    away_team_id = rng.integers(200, 300, size=n)
+    home_names   = [f"Team_{i}" for i in home_team_id]
+    away_names   = [f"Team_{i}" for i in away_team_id]
+    venue_names  = [f"Stadium_{i%30+1}" for i in match_ids]
+    status       = ["FT"] * n
+    return pd.DataFrame({
+        "match_id": match_ids,
+        "home_team_id": home_team_id,
+        "away_team_id": away_team_id,
+        "fixture_date_utc": make_calendar(n),
+        "match_outcome": outcomes,
+        "home_team_name": home_names,
+        "away_team_name": away_names,
+        "venue_name": venue_names,
+        "status": status,
+    })
+
+def generate_odds(match_ids: np.ndarray, prob: np.ndarray) -> pd.DataFrame:
+    odds = probabilities_to_odds(prob)
+    df = pd.DataFrame({
+        "match_id": match_ids,
+        "odds_1_last": odds[:, 0],  # H
+        "odds_x_last": odds[:, 1],  # D
+        "odds_2_last": odds[:, 2],  # A
+    })
+    df["odds_1_last_inv"] = 1.0 / df["odds_1_last"]
+    df["odds_x_last_inv"] = 1.0 / df["odds_x_last"]
+    df["odds_2_last_inv"] = 1.0 / df["odds_2_last"]
+    return df
+
+def generate_weather(match_ids: np.ndarray) -> pd.DataFrame:
+    n = len(match_ids)
+    temp = rng.normal(16, 8, n)
+    hum  = np.clip(rng.normal(62, 18, n), 5, 98)
+    wind = np.clip(rng.normal(12, 7, n), 0, 60)
+    cond_choices = ["Clear", "Cloudy", "Rain", "Windy", "Fog", "Overcast"]
+    cond = rng.choice(cond_choices, size=n, p=[0.25, 0.28, 0.20, 0.12, 0.05, 0.10])
+    return pd.DataFrame({
+        "match_id": match_ids,
+        "temperature_celsius": np.round(temp, 1),
+        "humidity_percent": np.round(hum, 1),
+        "wind_speed_kph": np.round(wind, 1),
+        "conditions": cond
+    })
+
+def generate_xg(match_ids: np.ndarray, outcomes: np.ndarray) -> pd.DataFrame:
+    n = len(match_ids)
+    home_xg = np.zeros(n)
+    away_xg = np.zeros(n)
+
+    idx_H = (outcomes == "H")
+    idx_D = (outcomes == "D")
+    idx_A = (outcomes == "A")
+
+    home_xg[idx_H] = rng.normal(1.8, 0.5, idx_H.sum())
+    away_xg[idx_H] = rng.normal(0.9, 0.4, idx_H.sum())
+
+    home_xg[idx_D] = rng.normal(1.2, 0.4, idx_D.sum())
+    away_xg[idx_D] = rng.normal(1.1, 0.4, idx_D.sum())
+
+    home_xg[idx_A] = rng.normal(0.9, 0.4, idx_A.sum())
+    away_xg[idx_A] = rng.normal(1.7, 0.5, idx_A.sum())
+
+    home_xg = np.clip(home_xg, 0.05, None)
+    away_xg = np.clip(away_xg, 0.05, None)
+
+    def shots_from_xg(xg):
+        base = np.maximum(2, (xg / 0.10) + rng.normal(0, 2, len(xg)))
+        return np.clip(np.round(base).astype(int), 1, 40)
+
+    home_shots = shots_from_xg(home_xg)
+    away_shots = shots_from_xg(away_xg)
+
+    def sot(shots, xg):
+        rate = np.clip(0.2 + (xg / (shots + 1)) + rng.normal(0, 0.05, len(shots)), 0.1, 0.7)
+        return np.clip(np.round(shots * rate).astype(int), 0, shots)
+
+    home_sot = sot(home_shots, home_xg)
+    away_sot = sot(away_shots, away_xg)
+
+    return pd.DataFrame({
+        "match_id": match_ids,
+        "home_xg": np.round(home_xg, 2),
+        "away_xg": np.round(away_xg, 2),
+        "home_shots": home_shots,
+        "away_shots": away_shots,
+        "home_shots_on_target": home_sot,
+        "away_shots_on_target": away_sot
+    })
+
+def generate_referees(match_ids: np.ndarray) -> pd.DataFrame:
+    n = len(match_ids)
+    ref_ids = rng.integers(5000, 5050, size=n)
+    ref_names = [f"Ref_{rid}" for rid in ref_ids]
+    yc = np.clip(rng.normal(3.2, 1.6, n), 0, 12)
+    rc = np.clip(rng.binomial(1, 0.08, n) * rng.choice([0,1,2], size=n, p=[0.6, 0.35, 0.05]), 0, 2)
+    return pd.DataFrame({
+        "match_id": match_ids,
+        "referee_id": ref_ids,
+        "referee_name": ref_names,
+        "yellow_cards": np.round(yc).astype(int),
+        "red_cards": rc.astype(int)
+    })
+
+def generate_squads(match_ids: np.ndarray) -> pd.DataFrame:
+    n = len(match_ids)
+    home_rating = rng.normal(70, 6, n)
+    away_rating = home_rating - rng.normal(3, 6, n)
+    return pd.DataFrame({
+        "match_id": match_ids,
+        "home_overall_rating": np.round(np.clip(home_rating, 50, 95), 1),
+        "away_overall_rating": np.round(np.clip(away_rating, 45, 92), 1),
+    })
+
+def main():
+    ensure_dirs()
+
+    match_ids = np.arange(1, N_TOTAL + 1, dtype=int)
+
+    prob = generate_probabilities(N_TOTAL)
+    outcomes = probabilities_to_outcomes(prob)
+
+    fixtures  = generate_fixtures(match_ids, outcomes)
+    odds      = generate_odds(match_ids, prob)
+    weather   = generate_weather(match_ids)
+    xg        = generate_xg(match_ids, outcomes)
+    referees  = generate_referees(match_ids)
+    squads    = generate_squads(match_ids)
+
+    # Tip ve sıralama güvenliği
+    for df in (fixtures, odds, weather, xg, referees, squads):
+        df["match_id"] = pd.to_numeric(df["match_id"], errors="coerce").astype("Int64")
+        df.sort_values("match_id", inplace=True)
+
+    # Dosyalara YAZ (overwrite)
+    fixtures.to_csv (RAW / "fixtures.csv",  index=False)
+    odds.to_csv     (RAW / "odds.csv",      index=False)
+    weather.to_csv  (RAW / "weather.csv",   index=False)
+    xg.to_csv       (RAW / "xg.csv",        index=False)   # <<< Artık kesin 258 satır
+    referees.to_csv (RAW / "referees.csv",  index=False)
+    squads.to_csv   (RAW / "squads.csv",    index=False)
+
+    shapes = {
+        "fixtures": len(fixtures),
+        "odds": len(odds),
+        "weather": len(weather),
+        "xg": len(xg),
+        "referees": len(referees),
+        "squads": len(squads),
+    }
+    vc = pd.Series(outcomes).value_counts().to_dict()
+    print("[DONE] Mock dataset regenerated (OVERWRITE).")
+    print("       rows:", shapes)
+    print("       outcome dist:", vc)
+
+if __name__ == "__main__":
+    main()
+

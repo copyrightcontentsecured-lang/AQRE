@@ -1,0 +1,205 @@
+﻿# -*- coding: utf-8 -*-
+print("[RUN] build_features (auto from fixtures/odds/etc):", __file__)
+
+from pathlib import Path
+import numpy as np
+import pandas as pd
+from typing import Optional
+
+RAW_DIR   = Path(r"C:\Users\melik\AQRE\data\raw")
+OUT_PATH  = Path(r"C:\Users\melik\AQRE\data\processed\features.parquet")
+
+FILES = {
+    "fixtures": RAW_DIR / "fixtures.csv",
+    "odds":     RAW_DIR / "odds.csv",
+    "weather":  RAW_DIR / "weather.csv",
+    "xg":       RAW_DIR / "xg_stats.csv",
+    "ref":      RAW_DIR / "referees.csv",
+    "squads":   RAW_DIR / "squads.csv",
+}
+
+def exists(p: Path) -> bool:
+    return p is not None and p.exists()
+
+def load_any(p: Path) -> Optional[pd.DataFrame]:
+    if not exists(p): return None
+    suf = (p.suffix or "").lower()
+    if suf in [".parquet", ".pq"]:
+        return pd.read_parquet(p)
+    elif suf in [".csv", ".txt"]:
+        return pd.read_csv(p)
+    else:
+        raise ValueError(f"Unknown extension: {p}")
+
+def normcols(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+def find_col(df: pd.DataFrame, aliases) -> Optional[str]:
+    cols = {c.lower(): c for c in df.columns}
+    for a in aliases:
+        if a.lower() in cols:
+            return cols[a.lower()]
+    for c in df.columns:
+        cl = c.lower()
+        if any(a in cl for a in aliases):
+            return c
+    return None
+
+def to_num(s): return pd.to_numeric(s, errors="coerce")
+def safe_inverse(s: pd.Series) -> pd.Series:
+    s = to_num(s); return s.rdiv(1.0).where(s > 0)
+
+# --- Load sources ---
+fx  = load_any(FILES["fixtures"])
+od  = load_any(FILES["odds"])
+wx  = load_any(FILES["weather"])
+xg  = load_any(FILES["xg"])
+rf  = load_any(FILES["ref"])
+sq  = load_any(FILES["squads"])
+
+if fx is None:
+    raise FileNotFoundError("fixtures.csv bulunamadı (data/raw).")
+
+fx = normcols(fx)
+if od is not None: od = normcols(od)
+if wx is not None: wx = normcols(wx)
+if xg is not None: xg = normcols(xg)
+if rf is not None: rf = normcols(rf)
+if sq is not None: sq = normcols(sq)
+
+print("[INFO] shapes:",
+      "fixtures", fx.shape,
+      "odds", None if od is None else od.shape,
+      "weather", None if wx is None else wx.shape,
+      "xg", None if xg is None else xg.shape,
+      "referees", None if rf is None else rf.shape,
+      "squads", None if sq is None else sq.shape)
+
+# --- Identify core keys ---
+fx_id = find_col(fx, ["match_id","fixture_id","id"])
+fx_ht = find_col(fx, ["home_team_id","home_team","home","home_name","team_home","homeclub"])
+fx_at = find_col(fx, ["away_team_id","away_team","away","away_name","team_away","awayclub"])
+fx_dt = find_col(fx, ["fixture_date_utc","match_date","date","kickoff","kickoff_time","utc_date","start_time"])
+
+print(f"[KEYS] fixtures -> id={fx_id} | home={fx_ht} | away={fx_at} | date={fx_dt}")
+
+# Normalize date in fixtures
+if fx_dt:
+    fx[fx_dt] = pd.to_datetime(fx[fx_dt], errors="coerce")
+
+# --- Target normalize (H/D/A + NONE/NAN/NULL/'' -> NaN + 0/1/2 -> H/D/A)
+tgt = find_col(fx, ["match_outcome","result","y","label","target"])
+if tgt:
+    fx[tgt] = (fx[tgt].astype(str).str.strip().str.upper()
+               .replace({"": np.nan, "NONE": np.nan, "NAN": np.nan, "NULL": np.nan,
+                         "HOME":"H","AWAY":"A","DRAW":"D","WIN":"H","LOSS":"A",
+                         "0":"H","1":"D","2":"A","0.0":"H","1.0":"D","2.0":"A"}))
+    # Hedef adını sabitle: match_outcome
+    fx["match_outcome"] = fx[tgt]
+    print("[INFO] target value_counts (fixtures):", fx["match_outcome"].value_counts(dropna=False).to_dict())
+else:
+    print("[WARN] hedef kolon bulunamadı (match_outcome/result/y/label/target).")
+
+# --- Prepare odds ---
+if od is not None:
+    od_id = find_col(od, ["match_id","fixture_id","id"])
+    od_ht = find_col(od, ["home_team_id","home_team","home","home_name","team_home","homeclub"])
+    od_at = find_col(od, ["away_team_id","away_team","away","away_name","team_away","awayclub"])
+    od_dt = find_col(od, ["fixture_date_utc","match_date","date","kickoff","kickoff_time","utc_date","start_time"])
+    if od_dt: od[od_dt] = pd.to_datetime(od[od_dt], errors="coerce")
+
+    # Odds: close öncelik, yoksa open/alternatif
+    candidates = {
+        "odds_1_last": ["odds_1_close","home_close","odds_home_close","odds_1","home_odds","odds_home","home","h","odds_1_open","home_open","odds_home_open"],
+        "odds_x_last": ["odds_x_close","draw_close","odds_draw_close","odds_x","draw_odds","odds_draw","draw","d","x","odds_x_open","draw_open","odds_draw_open"],
+        "odds_2_last": ["odds_2_close","away_close","odds_away_close","odds_2","away_odds","odds_away","away","a","2","odds_2_open","away_open","odds_away_open"],
+    }
+    for dst, alist in candidates.items():
+        found = None
+        for c in alist:
+            if c in od.columns and to_num(od[c]).notna().sum() > 0:
+                found = c; break
+        if found and dst not in od.columns:
+            od = od.rename(columns={found: dst})
+
+    keep = set([k for k in [od_id, od_ht, od_at, od_dt, "odds_1_last","odds_x_last","odds_2_last"] if k])
+    od = od[[c for c in od.columns if c in keep]].copy()
+
+    print(f"[KEYS] odds -> id={od_id} | home={od_ht} | away={od_at} | date={od_dt} | cols={list(od.columns)}")
+else:
+    od_id=od_ht=od_at=od_dt=None
+    print("[WARN] odds.csv bulunamadı; odds sütunu eklenmeyecek.")
+
+# --- Merge odds into fixtures ---
+df = fx.copy()
+def can_join_id(): return fx_id and od_id
+def can_join_teams_date(): return fx_ht and fx_at and fx_dt and od_ht and od_at and od_dt
+def can_join_teams_only(): return fx_ht and fx_at and od_ht and od_at
+
+if od is not None:
+    if can_join_id():
+        df = df.merge(od, left_on=fx_id, right_on=od_id, how="left", suffixes=("","_odds"))
+        print("[MERGE] odds on id")
+    elif can_join_teams_date():
+        df = df.merge(od, left_on=[fx_ht,fx_at,fx_dt], right_on=[od_ht,od_at,od_dt], how="left", suffixes=("","_odds"))
+        print("[MERGE] odds on (home,away,date)")
+    elif can_join_teams_only():
+        df = df.merge(od, left_on=[fx_ht,fx_at], right_on=[od_ht,od_at], how="left", suffixes=("","_odds"))
+        print("[MERGE] odds on (home,away) — WARNING: date ignored")
+    else:
+        print("[WARN] odds merge anahtarı bulunamadı; odds eklenmedi.")
+
+# --- Optional merges (weather/xg) on id
+def smart_merge(base, extra, name):
+    if extra is None: 
+        return base
+    ex_id = find_col(extra, ["match_id","fixture_id","id"])
+    if fx_id and ex_id and fx_id in base.columns and ex_id in extra.columns:
+        print(f"[MERGE] {name} on id")
+        return base.merge(extra, left_on=fx_id, right_on=ex_id, how="left", suffixes=("","_"+name))
+    else:
+        print(f"[WARN] {name} merge anahtarı bulunamadı/uygun değil; atlanıyor.")
+        return base
+
+df = smart_merge(df, wx, "wx")
+df = smart_merge(df, xg, "xg")
+
+# --- Ensure *_last exist from open/close (fixtures veya merge kaynaklı olabilir)
+def ensure_last_from_open_close(frame: pd.DataFrame, base: str):
+    last = f"{base}_last"
+    close = f"{base}_close"
+    open_ = f"{base}_open"
+    if last not in frame.columns:
+        if close in frame.columns and to_num(frame[close]).notna().sum() > 0:
+            frame[last] = to_num(frame[close])
+        elif open_ in frame.columns and to_num(frame[open_]).notna().sum() > 0:
+            frame[last] = to_num(frame[open_])
+
+for b in ["odds_1","odds_x","odds_2"]:
+    ensure_last_from_open_close(df, b)
+
+# --- Generate inverse odds
+for base in ["odds_1_last","odds_x_last","odds_2_last"]:
+    if base in df.columns:
+        df[base] = to_num(df[base])
+        df[f"{base}_inv"] = safe_inverse(df[base])
+
+# --- Drop known leakage fields if present (match_outcome'ı asla düşme)
+drop_cols = ["result","match_result","y","label","target","prediction","prob_home","prob_draw","prob_away"]
+df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors="ignore")
+
+# --- Info prints ---
+od_cols = [c for c in df.columns if c.startswith("odds_")]
+print("[INFO] odds columns present:", od_cols)
+print("[INFO] odds NaN rates:", {c: float(df[c].isna().mean()) for c in od_cols})
+if "match_outcome" in df.columns:
+    print("[INFO] match_outcome counts:", df["match_outcome"].value_counts(dropna=False).to_dict())
+else:
+    print("[INFO] match_outcome column not in final df.")
+
+OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+df.to_parquet(OUT_PATH, index=False)
+print("[DONE] saved ->", OUT_PATH, "| shape:", df.shape)
+

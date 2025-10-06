@@ -1,0 +1,9 @@
+﻿league: EPL
+window: "last_3_weeks"
+sources:
+  - fixtures
+  - xg_stats
+  - squads
+  - odds
+  - referee
+  - weather

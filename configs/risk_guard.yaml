@@ -1,0 +1,13 @@
+﻿limits:
+  max_single_risk_pct: 1.0
+  daily_drawdown_stop_pct: 2.0
+  max_concurrent_positions: 8
+  correlation_cluster_cap: 0.4
+guards:
+  odds_slippage_bps: 50
+  freshness_hours: 6
+  heartbeat_timeout_s: 60
+degraded_policy:
+  ece_threshold: 0.03
+  brier_threshold: 0.20
+  action: halt_or_throttle
