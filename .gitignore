@@ -22,3 +22,8 @@ data/raw/
 data/processed/
 models/
 reports/
+
+# Backups & logs
+_backup_fix_*/
+logs/
+!logs/.gitkeep
