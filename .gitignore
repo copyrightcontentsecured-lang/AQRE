@@ -25,5 +25,6 @@ reports/
 
 # Backups & logs
 _backup_fix_*/
-logs/
+logs/*
 !logs/.gitkeep
+
