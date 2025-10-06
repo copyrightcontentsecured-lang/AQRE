@@ -1,0 +1,19 @@
+﻿* text=auto
+
+# metin dosyaları LF
+*.py    text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.csv   text eol=lf
+
+# Windows script'leri CRLF
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# binary (asla normalize etme)
+*.parquet binary
+*.joblib binary
+*.pkl    binary
