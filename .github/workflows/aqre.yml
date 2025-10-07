@@ -8,9 +8,6 @@ on:
 jobs:
   run-pipeline:
     runs-on: windows-latest
-    env:
-      PYTHONUTF8: "1"
-      PYTHONPATH: ${{ github.workspace }}
 
     steps:
       - name: Checkout
@@ -26,25 +23,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run pipeline (fresh data on clean runner)
+      - name: Run pipeline (fast LOO on CI)
         shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+          AQRE_LOO_CALIBRATE: "0"   # CI'da kalibrasyon kapalı (hız)
         run: |
           Set-ExecutionPolicy Bypass -Scope Process -Force
-          ./tools/aqre_pipeline.ps1 -Rebuild
+          Write-Host "Script: $pwd\tools\aqre_pipeline.ps1"
+          ./tools/aqre_pipeline.ps1
 
       - name: Upload reports
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: reports
           path: |
             reports/loo_summary.json
             reports/loo_predictions.csv
             reports/metrics.json
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
       - name: Upload models
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: models
-          path: models/*.joblib
-          if-no-files-found: ignore
+          path: |
+            models/*.joblib
+          if-no-files-found: warn
