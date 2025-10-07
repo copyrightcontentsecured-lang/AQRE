@@ -1,11 +1,28 @@
-﻿# C:\Users\melik\AQRE\src\config.py
-from pathlib import Path
+﻿from pathlib import Path
+import os
 
-# Proje kökü: bu dosyanın (src/config.py) iki üstü
-ROOT_DIR = Path(__file__).resolve().parents[1]
+# Proje kökü (.../AQRE)
+ROOT = Path(__file__).resolve().parents[1]
 
-RAW_DATA_DIR       = ROOT_DIR / "data" / "raw"
-PROCESSED_DATA_DIR = ROOT_DIR / "data" / "processed"
-MODELS_DIR         = ROOT_DIR / "models"
-REPORTS_DIR        = ROOT_DIR / "reports"
-TOOLS_DIR          = ROOT_DIR / "tools"
+# Dizinler
+DATA_DIR    = ROOT / "data"
+REPORTS_DIR = ROOT / "reports"
+MODELS_DIR  = ROOT / "models"
+for d in (DATA_DIR, REPORTS_DIR, MODELS_DIR):
+    d.mkdir(parents=True, exist_ok=True)
+
+
+RAW_DATA_DIR       = DATA_DIR / "raw"
+PROCESSED_DATA_DIR = DATA_DIR / "processed"
+
+for d in (RAW_DATA_DIR, PROCESSED_DATA_DIR):
+    d.mkdir(parents=True, exist_ok=True)
+# Sayısal sabitler / env
+EPS       = float(os.getenv("EPS", "1e-12"))
+ECE_BINS  = int(os.getenv("ECE_BINS", "15"))
+
+# LOO kalibrasyon (env ile override edilebilir)
+LOO_CALIBRATE = os.getenv("LOO_CALIBRATE", "1").lower() not in ("0", "false")
+CAL_METHOD    = os.getenv("CAL_METHOD", "sigmoid")
+CAL_CV        = int(os.getenv("CAL_CV", "5"))
+

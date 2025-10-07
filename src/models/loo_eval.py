@@ -1,149 +1,219 @@
-﻿# C:\Users\melik\AQRE\src\models\loo_eval.py
-# Leave-One-Out with class-weight, epsilon smoothing and optional per-fold calibration
+﻿# src/models/loo_eval.py
+# -*- coding: utf-8 -*-
+"""
+Leave-One-Out (LOO) evaluation that reads central config.
+Writes:
+  - reports/loo_predictions.csv
+  - reports/loo_summary.json
+"""
 
-import json, os, warnings
+from __future__ import annotations
+
+import json
+import os
+import sys
+import warnings
 from pathlib import Path
-from typing import Tuple, List
+from typing import List
+
+import joblib
 import numpy as np
 import pandas as pd
-
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import log_loss
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.utils.class_weight import compute_class_weight
+from sklearn.metrics import accuracy_score, log_loss
+from sklearn.model_selection import LeaveOneOut
 
-from src.config import PROCESSED_DATA_DIR, REPORTS_DIR
+# --- Config (centralized) ----------------------------------------------------
+try:
+    from src import config as _cfg  # use central config if available
+except Exception:  # safe fallback if import path differs in user env
+    _cfg = None  # type: ignore
 
-def log(*a, p="[RUN]"):
-    print(p, *a)
+def _get_float_env(name: str, default: str) -> float:
+    try:
+        return float(os.getenv(name, default))
+    except Exception:
+        return float(default)
 
-TARGET_COL = "match_outcome"
-EPS = float(os.getenv("EPS", "1e-12"))
-ECE_BINS = int(os.getenv("ECE_BINS", "15"))
-CAL = os.getenv("LOO_CALIBRATE", "1") not in ("0","false","False")
-CAL_METHOD = os.getenv("CAL_METHOD", "sigmoid")
-CAL_CV = int(os.getenv("CAL_CV", "5"))
+def _get_int_env(name: str, default: str) -> int:
+    try:
+        return int(os.getenv(name, default))
+    except Exception:
+        return int(default)
 
-def robust_numeric(df: pd.DataFrame, ycol: str) -> pd.DataFrame:
-    X = df.drop(columns=[ycol]).select_dtypes(include=[np.number]).copy()
-    keep = []
-    for c in X.columns:
-        s = X[c]
-        if s.isna().mean() > 0.20: 
+# Pull from config if present; otherwise fall back to env/defaults
+EPS        = getattr(_cfg, "EPS",        _get_float_env("EPS", "1e-12"))
+ECE_BINS   = getattr(_cfg, "ECE_BINS",   _get_int_env("ECE_BINS", "15"))
+CAL        = getattr(_cfg, "LOO_CALIBRATE",
+                     os.getenv("LOO_CALIBRATE", "1") not in ("0", "false", "False"))
+CAL_METHOD = getattr(_cfg, "CAL_METHOD", os.getenv("CAL_METHOD", "sigmoid"))
+CAL_CV     = getattr(_cfg, "CAL_CV",     _get_int_env("CAL_CV", "5"))
+
+# --- Paths -------------------------------------------------------------------
+ROOT = Path(__file__).resolve().parents[2]  # repo root
+DATA_PROCESSED = ROOT / "data" / "processed" / "features.parquet"
+REPORTS_DIR    = ROOT / "reports"
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+# --- Helpers -----------------------------------------------------------------
+CLASSES: List[str] = ["A", "D", "H"]
+CLASS_TO_IDX = {c: i for i, c in enumerate(CLASSES)}
+
+def brier_multiclass(y_true_idx: np.ndarray, proba: np.ndarray) -> float:
+    """
+    Multiclass Brier score (mean squared error to one-hot).
+    """
+    n, k = proba.shape
+    y_onehot = np.zeros((n, k), dtype=float)
+    y_onehot[np.arange(n), y_true_idx] = 1.0
+    return float(np.mean(np.sum((proba - y_onehot) ** 2, axis=1)))
+
+def ece_maxprob(y_true_idx: np.ndarray, proba: np.ndarray, n_bins: int = 15) -> float:
+    """
+    Expected Calibration Error using max probability per sample.
+    """
+    conf = proba.max(axis=1)
+    pred = proba.argmax(axis=1)
+    bins = np.linspace(0.0, 1.0, n_bins + 1)
+    ece = 0.0
+    n = len(conf)
+    for i in range(n_bins):
+        lo, hi = bins[i], bins[i + 1]
+        mask = (conf > lo) & (conf <= hi) if i > 0 else (conf >= lo) & (conf <= hi)
+        if not np.any(mask):
             continue
-        if not np.isfinite(s.to_numpy(dtype=float, copy=False)).all():
-            continue
-        if s.nunique(dropna=True) <= 1:
-            continue
-        keep.append(c)
-    return pd.concat([X[keep], df[[ycol]]], axis=1)
+        bin_conf = float(np.mean(conf[mask]))
+        bin_acc  = float(np.mean((pred[mask] == y_true_idx[mask]).astype(float)))
+        ece += (np.sum(mask) / n) * abs(bin_acc - bin_conf)
+    return float(ece)
 
-def eps_smooth(P, eps=1e-12):
-    P = P + eps
-    P /= np.clip(P.sum(axis=1, keepdims=True), 1e-32, None)
-    return P
+def select_numeric_features(df: pd.DataFrame, target_col: str) -> pd.DataFrame:
+    num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if target_col in num_cols:
+        num_cols.remove(target_col)
+    return df[num_cols]
 
-def brier_multiclass(y_true_int, proba, K):
-    Y = np.eye(K)[y_true_int]
-    return float(np.mean(np.sum((Y - proba)**2, axis=1)))
+# --- Main LOO ----------------------------------------------------------------
+def main() -> int:
+    warnings.filterwarnings("ignore")
 
-def ece(maxp, correct, n_bins=15):
-    bins = np.linspace(0.0, 1.0, n_bins+1)
-    idx = np.digitize(maxp, bins) - 1
-    e, n = 0.0, len(maxp)
-    for b in range(n_bins):
-        m = (idx == b)
-        if not np.any(m): 
-            continue
-        conf, acc = float(np.mean(maxp[m])), float(np.mean(correct[m]))
-        w = float(np.sum(m)/n)
-        e += abs(acc-conf)*w
-    return float(e)
+    if not DATA_PROCESSED.exists():
+        print(f"[ERROR] Processed features not found: {DATA_PROCESSED}", file=sys.stderr)
+        return 2
 
-def base():
-    return GradientBoostingClassifier(
-        n_estimators=400, learning_rate=0.05, max_depth=3, subsample=0.9, random_state=42
+    df = pd.read_parquet(DATA_PROCESSED)
+    target_col = "match_outcome"
+    if target_col not in df.columns:
+        print(f"[ERROR] '{target_col}' not in features. Available: {list(df.columns)}", file=sys.stderr)
+        return 3
+
+    X = select_numeric_features(df, target_col)
+    y = df[target_col].astype(str).values
+    y_idx = np.array([CLASS_TO_IDX.get(lbl, -1) for lbl in y], dtype=int)
+    if (y_idx < 0).any():
+        bad = df.loc[y_idx < 0, target_col].unique().tolist()
+        print(f"[ERROR] Unknown labels in data: {bad}", file=sys.stderr)
+        return 4
+
+    print(f"[RUN] Kalan sayısal özellik: {X.shape[1]}")
+    print(f"[RUN] LOO (calibrate={bool(CAL)}:{CAL_METHOD}, cv={CAL_CV})")
+
+    loo = LeaveOneOut()
+    n = len(df)
+    proba_out = np.zeros((n, len(CLASSES)), dtype=float)
+
+    # We use the same base model family as training (GBM).
+    base_params = dict(
+        random_state=42,
+        n_estimators=300,
+        learning_rate=0.05,
+        max_depth=3,
+        subsample=1.0
     )
 
-def loo_eval(df: pd.DataFrame):
-    df = robust_numeric(df, TARGET_COL)
-    y_raw = df[TARGET_COL].astype(str).to_numpy()
-    X = df.drop(columns=[TARGET_COL]).to_numpy(dtype=float, copy=False)
+    # LOO loop
+    for i, (train_idx, test_idx) in enumerate(loo.split(X), 1):
+        X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
+        y_tr = y[train_idx]
 
-    le = LabelEncoder().fit(y_raw)
-    classes = list(le.classes_)
-    y = le.transform(y_raw)
-    K, n = len(classes), len(y)
-
-    # class-weight -> örnek ağırlıkları
-    cw = compute_class_weight(class_weight="balanced", classes=np.arange(K), y=y)
-    cw_map = dict(zip(range(K), cw))
-
-    rows, cal_fail = [], 0
-    log(f"Kalan sayısal özellik: {X.shape[1]}")
-    log(f"LOO (calibrate={CAL}:{CAL_METHOD}, cv={CAL_CV})")
-
-    for i in range(n):
-        mask = np.ones(n, dtype=bool); mask[i] = False
-        X_tr, y_tr = X[mask], y[mask]
-        X_te = X[~mask].reshape(1, -1)
-        sw_tr = np.array([cw_map[k] for k in y_tr], dtype=float)
-
-        clf = base()
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            clf.fit(X_tr, y_tr, sample_weight=sw_tr)
+        model = GradientBoostingClassifier(**base_params)
 
         if CAL:
-            try:
-                try:
-                    cal = CalibratedClassifierCV(estimator=clf, method=CAL_METHOD, cv=CAL_CV)
-                except TypeError:
-                    cal = CalibratedClassifierCV(base_estimator=clf, method=CAL_METHOD, cv=CAL_CV)
-                cal.fit(X_tr, y_tr, sample_weight=sw_tr)
-                p = cal.predict_proba(X_te)[0]
-            except Exception:
-                cal_fail += 1
-                p = clf.predict_proba(X_te)[0]
+            # Calibrate on training fold with inner CV
+            clf = CalibratedClassifierCV(estimator=model, method=CAL_METHOD, cv=CAL_CV)
         else:
-            p = clf.predict_proba(X_te)[0]
+            clf = model
 
-        p = eps_smooth(p.reshape(1,-1), EPS)[0]
-        row = {"index": i, "y_true_label": classes[y[i]]}
-        for j, c in enumerate(classes):
-            row[f"proba_{c}"] = float(p[j])
-        rows.append(row)
+        clf.fit(X_tr, y_tr)
+        p = clf.predict_proba(X_te)[0]  # (k,)
+        # Ensure order of classes matches CLASSES
+        # Scikit may order classes_ alphabetically; align to our CLASSES.
+        cls_order = list(clf.classes_)
+        aligned = np.zeros(len(CLASSES), dtype=float)
+        for j, c in enumerate(CLASSES):
+            try:
+                idx_c = cls_order.index(c)
+                aligned[j] = p[idx_c]
+            except ValueError:
+                aligned[j] = 0.0
+        # numerical safety
+        aligned = np.clip(aligned, EPS, 1.0)
+        aligned /= aligned.sum()
+        proba_out[test_idx[0], :] = aligned
 
-    pred_df = pd.DataFrame(rows)
-    P = pred_df[[f"proba_{c}" for c in classes]].to_numpy()
-    y_true = le.transform(pred_df["y_true_label"].to_numpy())
-    y_hat = np.argmax(P, axis=1)
+        if i % 25 == 0 or i == n:
+            print(f"  - progress: {i}/{n}", flush=True)
 
-    summ = {
+    # Metrics
+    y_pred_idx = proba_out.argmax(axis=1)
+    y_pred = np.array([CLASSES[i] for i in y_pred_idx])
+    acc = float(accuracy_score(y, y_pred))
+    ll = float(log_loss(\1))
+    brier = brier_multiclass(y_idx, proba_out)
+    ece = ece_maxprob(y_idx, proba_out, n_bins=ECE_BINS)
+
+    # Save predictions
+    pred_df = pd.DataFrame({
+        "index": np.arange(n, dtype=int),
+        "y_true_label": y,
+        "proba_A": proba_out[:, 0],
+        "proba_D": proba_out[:, 1],
+        "proba_H": proba_out[:, 2],
+    })
+    pred_path = REPORTS_DIR / "loo_predictions.csv"
+    pred_df.to_csv(pred_path, index=False)
+
+    # Save summary
+    summary = {
         "n_samples": int(n),
-        "classes": classes,
+        "classes": CLASSES,
         "metrics": {
-            "log_loss": float(log_loss(y_true, P, labels=list(range(K)))),
-            "brier_multiclass": brier_multiclass(y_true, P, K),
-            "ece_15bins": ece(P.max(axis=1), (y_hat==y_true).astype(int), n_bins=ECE_BINS),
-            "accuracy": float(np.mean(y_hat==y_true)),
+            "log_loss": ll,
+            "brier_multiclass": brier,
+            "ece_15bins": ece,  # kept key name for backwards-compat with plots
+            "accuracy": acc,
         },
         "calibration": {
-            "enabled": bool(CAL), "method": CAL_METHOD if CAL else None,
-            "cv": CAL_CV if CAL else None, "folds_failed": int(cal_fail)
+            "enabled": bool(CAL),
+            "method": CAL_METHOD,
+            "cv": int(CAL_CV),
+            "folds_failed": 0,  # placeholder (no inner fold failures tracked here)
         },
     }
-    return pred_df, summ
+    summ_path = REPORTS_DIR / "loo_summary.json"
+    with open(summ_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, ensure_ascii=False, indent=2)
 
-def main():
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    fp = PROCESSED_DATA_DIR / "features.parquet"
-    df = pd.read_parquet(fp)
-    pred_df, summary = loo_eval(df)
-    pred_df.to_csv(REPORTS_DIR / "loo_predictions.csv", index=False)
-    (REPORTS_DIR / "loo_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    log("LOO written:", str(REPORTS_DIR / "loo_predictions.csv"), str(REPORTS_DIR / "loo_summary.json"), p="[DONE]")
+    print(f"[DONE] LOO written: {pred_path.resolve()} {summ_path.resolve()}")
+    print(
+        "Classes:", CLASSES,
+        "\nMetrics:",
+        json.dumps(summary["metrics"], indent=2)
+    )
+    return 0
 
 if __name__ == "__main__":
-    os.environ.setdefault("PYTHONUTF8", "1"); main()
+    raise SystemExit(main())
+
+
