@@ -1,0 +1,46 @@
+﻿name: AQRE CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  run-pipeline:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt
+
+      - name: Run pipeline (PowerShell)
+        shell: powershell
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          ./tools/aqre_pipeline.ps1
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            reports/**
+            !reports/**/*.tmp
+
+      - name: Upload models
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: models
+          path: models/**
