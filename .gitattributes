@@ -17,3 +17,7 @@
 *.parquet binary
 *.joblib binary
 *.pkl    binary
+
+# ensure LF endings for git hooks
+.githooks/* text eol=lf
+
