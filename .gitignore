@@ -28,3 +28,12 @@ _backup_fix_*/
 logs/*
 !logs/.gitkeep
 
+
+# --- overrides: anchor ignores to repo root (avoid hiding src/models) ---
+/data/raw/
+/data/processed/
+/models/
+/reports/
+!/src/models/
+!/reports/loo_summary.json
+!/reports/loo_predictions.csv

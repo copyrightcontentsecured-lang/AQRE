@@ -6,9 +6,15 @@
     "H"
   ],
   "metrics": {
-    "log_loss": 0.8381861497287344,
-    "brier_multiclass": 0.4751908064768501,
-    "ece_15bins": 0.13651018006278134,
-    "accuracy": 0.6627906976744186
+    "log_loss": 0.8091220274788135,
+    "brier_multiclass": 0.47102950552924827,
+    "ece_15bins": 0.12044577713602815,
+    "accuracy": 0.6472868217054264
+  },
+  "calibration": {
+    "enabled": true,
+    "method": "sigmoid",
+    "cv": 5,
+    "folds_failed": 0
   }
 }
