@@ -1,17 +1,14 @@
 ﻿name: AQRE CI
-
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   run-pipeline:
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -19,29 +16,39 @@ jobs:
           python-version: '3.13'
 
       - name: Install deps
+        shell: pwsh
         run: |
-          python -m pip install -U pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run pipeline (PowerShell)
-        shell: powershell
+        shell: pwsh
         run: |
           Set-ExecutionPolicy Bypass -Scope Process -Force
-          ./tools/aqre_pipeline.ps1
+          Stop = 'Stop'
+           = Join-Path  'tools/aqre_pipeline.ps1'
+          Write-Host "Script: "
+          if (-not (Test-Path )) {
+            Get-ChildItem -Recurse
+            throw "Pipeline script not found: "
+          }
+          & 
+          if (0 -ne 0) {
+            throw "Pipeline exit code 0"
+          }
 
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: reports
-          path: |
-            reports/**
-            !reports/**/*.tmp
+          path: reports/**/*.*
+          if-no-files-found: warn
 
       - name: Upload models
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: models
-          path: models/**
-
+          path: models/**/*.*
+          if-no-files-found: warn
