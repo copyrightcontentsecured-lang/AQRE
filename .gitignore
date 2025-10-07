@@ -49,3 +49,10 @@ logs/*
 # Görseller/ham CSV’ler repo dışı kalsın
 /reports/*.png
 /reports/picks_rule.csv
+# local outputs / artifacts
+/models_from_ci/
+/reports_from_ci/
+*.bak
+__pycache__/
+/models/*.joblib
+/reports/metrics.json
