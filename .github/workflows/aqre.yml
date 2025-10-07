@@ -25,15 +25,15 @@ jobs:
         shell: pwsh
         run: |
           Set-ExecutionPolicy Bypass -Scope Process -Force
-          \Stop = 'Stop'
-          \ = Join-Path \ 'tools/aqre_pipeline.ps1'
-          Write-Host "Script: \"
-          if (-not (Test-Path \)) {
-            Get-ChildItem -Recurse | Select-String -SimpleMatch 'aqre_pipeline.ps1' -List | ForEach-Object { .Path }
-            throw "Pipeline script not found: \"
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'tools/aqre_pipeline.ps1'
+          Write-Host "Script: $script"
+          if (-not (Test-Path $script)) {
+            Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter aqre_pipeline.ps1 | ForEach-Object { $_.FullName }
+            throw "Pipeline script not found: $script"
           }
-          & "\"
-          if (\0 -ne 0) { throw "Pipeline exit code \0" }
+          & "$script"
+          if ($LASTEXITCODE -ne 0) { throw "Pipeline exit code $LASTEXITCODE" }
 
       - name: Upload reports
         if: always()
