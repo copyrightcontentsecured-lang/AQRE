@@ -30,3 +30,5 @@ try {
   Write-Host "[FAIL] $($_.Exception.Message)" -ForegroundColor Red
   exit 2
 }
+
+exit 0
