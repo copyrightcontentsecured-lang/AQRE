@@ -6,10 +6,10 @@
     "H"
   ],
   "metrics": {
-    "log_loss": 0.8091220274788135,
-    "brier_multiclass": 0.47102950552924827,
-    "ece_15bins": 0.12044577713602815,
-    "accuracy": 0.6472868217054264
+    "log_loss": 0.8038924079275176,
+    "brier_multiclass": 0.46978947268403776,
+    "ece_15bins": 0.0994931592148783,
+    "accuracy": 0.6511627906976745
   },
   "calibration": {
     "enabled": true,
