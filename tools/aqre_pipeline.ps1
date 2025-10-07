@@ -32,3 +32,6 @@ try {
 }
 
 exit 0
+
+# explicit success for CI
+exit 0

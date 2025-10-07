@@ -25,17 +25,15 @@ jobs:
         shell: pwsh
         run: |
           Set-ExecutionPolicy Bypass -Scope Process -Force
-          Stop = 'Stop'
-           = Join-Path  'tools/aqre_pipeline.ps1'
-          Write-Host "Script: "
-          if (-not (Test-Path )) {
-            Get-ChildItem -Recurse
-            throw "Pipeline script not found: "
+          \Stop = 'Stop'
+          \ = Join-Path \ 'tools/aqre_pipeline.ps1'
+          Write-Host "Script: \"
+          if (-not (Test-Path \)) {
+            Get-ChildItem -Recurse | Select-String -SimpleMatch 'aqre_pipeline.ps1' -List | ForEach-Object { .Path }
+            throw "Pipeline script not found: \"
           }
-          & 
-          if (0 -ne 0) {
-            throw "Pipeline exit code 0"
-          }
+          & "\"
+          if (\0 -ne 0) { throw "Pipeline exit code \0" }
 
       - name: Upload reports
         if: always()
