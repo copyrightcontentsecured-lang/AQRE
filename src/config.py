@@ -60,7 +60,7 @@ CAL_METHOD    = os.getenv("CAL_METHOD", "isotonic")   # "sigmoid" | "isotonic"
 CAL_CV        = _get_int("CAL_CV", 10, 2, 20)
 
 # ---------- Picks stratejisi ----------
-MIN_CONF    = _get_float("MIN_CONF", 0.47, 0.0, 1.0)
+MIN_CONF    = _get_float("MIN_CONF", 0.54, 0.0, 1.0)
 DRAW_MARGIN = _get_float("DRAW_MARGIN", 0.10, 0.0, 0.5)
 
 # ---------- Görüntüleme ----------
@@ -92,3 +92,4 @@ def to_dict() -> Dict[str, Any]:
 
 def dump_config(pretty: bool = True) -> str:
     return json.dumps(to_dict(), indent=2 if pretty else None, ensure_ascii=False)
+
