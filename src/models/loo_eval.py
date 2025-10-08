@@ -10,10 +10,12 @@ import pandas as pd
 
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import log_loss, accuracy_score, confusion_matrix
+from sklearn.metrics import log_loss, accuracy_score
 from sklearn.model_selection import LeaveOneOut
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils import check_random_state
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 # ---- Proje config ----
 from src.config import (
@@ -31,8 +33,7 @@ from src.config import (
 # =========================================================
 def _ece_maxproba(y_true: np.ndarray, proba: np.ndarray, n_bins: int = 15) -> float:
     """
-    Multiclass ECE (Expected Calibration Error).
-    'max-proba' tanımıyla: her örnek için tahmin edilen sınıfın olasılığı kullanılır.
+    Multiclass Expected Calibration Error (ECE), max-proba yaklaşımıyla.
     """
     y_true = np.asarray(y_true)
     proba = np.asarray(proba, dtype=float)
@@ -40,7 +41,6 @@ def _ece_maxproba(y_true: np.ndarray, proba: np.ndarray, n_bins: int = 15) -> fl
     pred = proba.argmax(axis=1)
     conf = proba.max(axis=1)
 
-    # Bin aralıkları [0,1]
     bins = np.linspace(0.0, 1.0, n_bins + 1)
     ece = 0.0
     n = len(y_true)
@@ -70,7 +70,7 @@ def _brier_multiclass(y_true: np.ndarray, proba: np.ndarray, classes_: list[str]
 
 def _ensure_dirs():
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    (PROCESSED_DATA_DIR).mkdir(parents=True, exist_ok=True)
+    PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _load_dataset() -> tuple[pd.DataFrame, np.ndarray, list[str]]:
@@ -105,17 +105,20 @@ def _load_dataset() -> tuple[pd.DataFrame, np.ndarray, list[str]]:
 
 def _build_model(random_state: int = 42):
     """
-    Basit ama sağlam bir temel model: multinomial LogisticRegression.
-    (Projenin kendi modelini kullanmak istersen burayı değiştirebilirsin.)
+    Ölçekleme + daha yüksek iterasyon ile sağlamlaştırılmış lojistik regresyon.
+    - StandardScaler: yakınsama ve kararlılık için
+    - LogisticRegression: lbfgs, max_iter=1000 (multi_class parametresi kaldırıldı; sklearn>=1.5'te default 'multinomial')
     """
-    return LogisticRegression(
-        penalty="l2",
-        solver="lbfgs",
-        multi_class="multinomial",
-        max_iter=200,
-        random_state=random_state,
-        n_jobs=None,
-    )
+    return Pipeline([
+        ("scaler", StandardScaler(with_mean=True, with_std=True)),
+        ("clf", LogisticRegression(
+            penalty="l2",
+            solver="lbfgs",
+            max_iter=1000,           # 200 -> 1000
+            random_state=random_state,
+            n_jobs=None,
+        )),
+    ])
 
 
 def _maybe_calibrated(clf, method: str, cv: int, enable: bool):
@@ -169,7 +172,7 @@ def main() -> int:
     y_pred = pred_out
     proba = proba_out
 
-    # log_loss (eps yok!)
+    # log_loss (eps yok; y 0..K-1 ve labels=[0..K-1])
     ll = float(log_loss(y_true, proba, labels=np.arange(len(classes_))))
     acc = float(accuracy_score(y_true, y_pred))
     brier = _brier_multiclass(y_true, proba, classes_)
@@ -180,10 +183,16 @@ def main() -> int:
     pred_path = reports_dir / "loo_predictions.csv"
     sum_path = reports_dir / "loo_summary.json"
 
+    # Etiket isimlerini ekle (tools.make_picks & plot_eval bunu bekliyor)
+    y_true_label = [classes_[i] for i in y_true]
+    y_pred_label = [classes_[i] for i in y_pred]
+
     df_out = pd.DataFrame(
         {
-            "y_true": y_true,
-            "y_pred": y_pred,
+            "y_true": y_true,                 # sayısal 0..K-1
+            "y_pred": y_pred,                 # sayısal 0..K-1
+            "y_true_label": y_true_label,     # metin etiket
+            "y_pred_label": y_pred_label,     # metin etiket
         }
     )
     # Sınıf olasılık kolonlarını ekle
