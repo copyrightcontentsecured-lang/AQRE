@@ -31,8 +31,10 @@ def _get_int(name: str, default: int, lo: Optional[int] = None, hi: Optional[int
         v = int(os.getenv(name, str(default)))
     except Exception:
         v = default
-    if lo is not None: v = max(lo, v)
-    if hi is not None: v = min(hi, v)
+    if lo is not None:
+        v = max(lo, v)
+    if hi is not None:
+        v = min(hi, v)
     return v
 
 def _get_float(name: str, default: float, lo: Optional[float] = None, hi: Optional[float] = None) -> float:
@@ -40,8 +42,10 @@ def _get_float(name: str, default: float, lo: Optional[float] = None, hi: Option
         v = float(os.getenv(name, str(default)))
     except Exception:
         v = default
-    if lo is not None: v = max(lo, v)
-    if hi is not None: v = min(hi, v)
+    if lo is not None:
+        v = max(lo, v)
+    if hi is not None:
+        v = min(hi, v)
     return v
 
 # ---------- Genel sabitler ----------
@@ -51,8 +55,9 @@ SEED      = _get_int("SEED", 42, 0, 10_000_000)
 
 # ---------- LOO kalibrasyon ----------
 LOO_CALIBRATE = _get_bool("LOO_CALIBRATE", True)
-CAL_METHOD    = os.getenv("CAL_METHOD", "sigmoid")  # "sigmoid" | "isotonic"
-CAL_CV        = _get_int("CAL_CV", 5, 2, 20)
+# Düzeltildi: varsayılan 'isotonic', CV=10
+CAL_METHOD    = os.getenv("CAL_METHOD", "isotonic")   # "sigmoid" | "isotonic"
+CAL_CV        = _get_int("CAL_CV", 10, 2, 20)
 
 # ---------- Picks stratejisi ----------
 MIN_CONF    = _get_float("MIN_CONF", 0.47, 0.0, 1.0)

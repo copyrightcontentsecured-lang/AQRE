@@ -1,7 +1,4 @@
-Set-Location C:\Users\melik\AQRE
-
-@"
-import json
+﻿import json
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -18,12 +15,12 @@ df = pd.read_csv(csv_path)
 # Sınıf sırası: summary varsa ordan, yoksa proba_ kolonlarından
 classes = None
 if sum_path.exists():
-    with open(sum_path, 'r', encoding='utf-8') as f:
-        try:
+    try:
+        with open(sum_path, 'r', encoding='utf-8') as f:
             sm = json.load(f)
             classes = sm.get('classes')
-        except Exception:
-            classes = None
+    except Exception:
+        classes = None
 
 if not classes:
     classes = [c.replace('proba_', '') for c in df.columns if c.startswith('proba_')]
@@ -48,4 +45,3 @@ if 'y_pred_label' not in df.columns:
 
 df.to_csv(csv_path, index=False)
 print("OK: ensured labels in", csv_path)
-"@ | Set-Content .\tools\ensure_labels.py -Encoding UTF8

@@ -56,3 +56,4 @@ logs/*
 __pycache__/
 /models/*.joblib
 /reports/metrics.json
+reports/
