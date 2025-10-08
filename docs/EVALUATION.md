@@ -1,3 +1,7 @@
+﻿<!-- DEFAULTS_BANNER_BEGIN -->
+> **Calibration:** isotonic (CV=10)  
+> **Picks defaults:** MIN_CONF=0.46, DRAW_MARGIN=0.09
+<!-- DEFAULTS_BANNER_END -->
 
 
 ---
@@ -16,11 +20,11 @@
 
 tools.make\_picks
 
-\- LOO CSV'den etiketleri okuyup karıştırmadan karışıklık matrisi ve metrikleri basar.
+\- LOO CSV'den etiketleri okuyup karÄ±ÅŸtÄ±rmadan karÄ±ÅŸÄ±klÄ±k matrisi ve metrikleri basar.
 
-\- Sınıf bazlı precision/recall/F1 ve toplam 'D' (beraberlik) sayısını raporlar.
+\- SÄ±nÄ±f bazlÄ± precision/recall/F1 ve toplam 'D' (beraberlik) sayÄ±sÄ±nÄ± raporlar.
 
-\- Eşikleri (MIN\_CONF, DRAW\_MARGIN) terminalde gösterir.
+\- EÅŸikleri (MIN\_CONF, DRAW\_MARGIN) terminalde gÃ¶sterir.
 
 
 
@@ -72,7 +76,7 @@ SUM = REPORTS / "loo\_summary.json"
 
 
 
-\# ----- okunabilir sınıf sırası
+\# ----- okunabilir sÄ±nÄ±f sÄ±rasÄ±
 
 DEFAULT\_ORDER = \["A", "D", "H"]
 
@@ -90,7 +94,7 @@ def load\_summary():
 
 &nbsp;       classes = js.get("classes") or DEFAULT\_ORDER
 
-&nbsp;       # güvenlik: beklenen sırayı koru
+&nbsp;       # gÃ¼venlik: beklenen sÄ±rayÄ± koru
 
 &nbsp;       classes = \[c for c in DEFAULT\_ORDER if c in set(classes)]
 
@@ -114,7 +118,7 @@ def load\_summary():
 
 def main():
 
-&nbsp;   # Eşikleri env'den oku (yoksa config içindeki default'lar terminalden hızlı bakış için)
+&nbsp;   # EÅŸikleri env'den oku (yoksa config iÃ§indeki default'lar terminalden hÄ±zlÄ± bakÄ±ÅŸ iÃ§in)
 
 &nbsp;   try:
 
@@ -124,19 +128,19 @@ def main():
 
 &nbsp;   except Exception:
 
-&nbsp;       print("\[picks] thresholds -> (env/config okunamadı)")
+&nbsp;       print("\[picks] thresholds -> (env/config okunamadÄ±)")
 
 
 
 &nbsp;   if not CSV.exists():
 
-&nbsp;       raise FileNotFoundError(f"CSV bulunamadı: {CSV}")
+&nbsp;       raise FileNotFoundError(f"CSV bulunamadÄ±: {CSV}")
 
 
 
 &nbsp;   df = pd.read\_csv(CSV)
 
-&nbsp;   # Etiket kolon adlarını garanti et
+&nbsp;   # Etiket kolon adlarÄ±nÄ± garanti et
 
 &nbsp;   for col in \["y\_true\_label", "y\_pred\_label"]:
 
@@ -146,7 +150,7 @@ def main():
 
 &nbsp;               f"Beklenen kolon yok: '{col}'. "
 
-&nbsp;               f"Önce `python -m tools.ensure\_labels` çalıştırın."
+&nbsp;               f"Ã–nce `python -m tools.ensure\_labels` Ã§alÄ±ÅŸtÄ±rÄ±n."
 
 &nbsp;           )
 
@@ -178,7 +182,7 @@ def main():
 
 
 
-&nbsp;   # sınıf raporu
+&nbsp;   # sÄ±nÄ±f raporu
 
 &nbsp;   cls\_rep = classification\_report(
 
@@ -194,15 +198,15 @@ def main():
 
 
 
-&nbsp;   # ----- yazdır
+&nbsp;   # ----- yazdÄ±r
 
 &nbsp;   print("Confusion (rows=true, cols=pred A/D/H):")
 
-&nbsp;   # ekranda sabit sırayla gösterelim
+&nbsp;   # ekranda sabit sÄ±rayla gÃ¶sterelim
 
 &nbsp;   order = \["A", "D", "H"]
 
-&nbsp;   # cm çıktısı seçilen 'labels' sırasına göre; görünüm için A/D/H'yi yeniden dizelim
+&nbsp;   # cm Ã§Ä±ktÄ±sÄ± seÃ§ilen 'labels' sÄ±rasÄ±na gÃ¶re; gÃ¶rÃ¼nÃ¼m iÃ§in A/D/H'yi yeniden dizelim
 
 &nbsp;   idx\_map = \[labels.index(c) for c in order if c in labels]
 
@@ -218,7 +222,7 @@ def main():
 
 
 
-&nbsp;   # base summary (loo\_summary.json) + picks özet
+&nbsp;   # base summary (loo\_summary.json) + picks Ã¶zet
 
 &nbsp;   merged\_summary = {
 
@@ -230,11 +234,11 @@ def main():
 
 &nbsp;       "metrics": {
 
-&nbsp;           # base\_metrics (varsa) aynen geçir
+&nbsp;           # base\_metrics (varsa) aynen geÃ§ir
 
 &nbsp;           \*\*base\_metrics,
 
-&nbsp;           # picks sonrası güncel (hesaplanan) metrikler:
+&nbsp;           # picks sonrasÄ± gÃ¼ncel (hesaplanan) metrikler:
 
 &nbsp;           "accuracy": acc,
 
@@ -256,7 +260,7 @@ def main():
 
 
 
-&nbsp;   # sınıf bazlı tablo
+&nbsp;   # sÄ±nÄ±f bazlÄ± tablo
 
 &nbsp;   print("\\n\[classification report]\\n")
 
@@ -272,3 +276,38 @@ if \_\_name\_\_ == "\_\_main\_\_":
 
 
 
+
+
+<!-- ONE_LINERS_BEGIN -->
+### Tek Satırlık Komut Örnekleri
+
+**Tüm akış (tek satır):**
+\\\powershell
+python -m src.models.loo_eval; python -m tools.ensure_labels; python -m tools.make_picks; python -m tools.plot_eval; Start-Process .\reports\confusion_matrix.png; Start-Process .\reports\reliability_maxproba.png; Start-Process .\reports\loo_summary.json
+\\\
+
+**Sadece değerlendirme (LOO + metrikler):**
+\\\powershell
+python -m src.models.loo_eval; Start-Process .\reports\loo_summary.json
+\\\
+
+**Etiket sütunlarını garanti et:**
+\\\powershell
+python -m tools.ensure_labels
+\\\
+
+**Picks üret (default eşikler):**
+\\\powershell
+python -m tools.make_picks
+\\\
+
+**Picks üret (seanslık agresif eşikler):**
+\\\powershell
+="0.46"; ="0.09"; python -m tools.make_picks; Remove-Item Env:MIN_CONF,Env:DRAW_MARGIN -ErrorAction SilentlyContinue
+\\\
+
+**Grafikleri çiz:**
+\\\powershell
+python -m tools.plot_eval; Start-Process .\reports\confusion_matrix.png; Start-Process .\reports\reliability_maxproba.png
+\\\
+<!-- ONE_LINERS_END -->
